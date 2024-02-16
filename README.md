@@ -1,20 +1,20 @@
 # Overview
 
-Analysing JSON data has been a significant challenge for large companies, with organizations like Uber ingesting millions of logs per second and eBay storing multiple petabytes of logs each day, all in JSON format. Building analytics with this voluminous and complex data can be inefficient and complicated. This document outlines a technique for ingesting JSON data and formatting it in a fixed schema within Clickhouse, accommodating structural changes in the JSON data.
+Analysing JSON data has been a significant challenge for large companies, with organizations like Uber ingesting millions of logs per second and eBay storing multiple petabytes of logs each day, all in JSON format. Building analytics with this large, complex data can be inefficient and complicated. This repository explores three technique for ingesting JSON data from GCP Cloud Run and formatting it in a fixed schema within Clickhouse.
 
 ## Approaches
 
 ### Approach One: Single JSON Object
 
-Storing data as a single JSON object in one column allows for the creation of fields within each row for every unique field found in the JSON. This approach leads to many fields having default values like None and "", impacting table compression, as discussed in the Data section.
+The first approach - `json_data` - is the table store the JSON data as a JSON object in a column called `_source`. Each row in the `_source` column contains a JSON object that has every field seen in the entirity of the data; therefore, there is quite a lot of fields containing there default value (e.g "" and None). 
 
 ### Approach Two: Flattened JSON Data
 
-Flattening JSON data significantly improves query speed, up to 5x-10x faster than other schemas. However, it doesn't scale well due to linear growth in the number of disk files as new JSON fields are identified. To prevent INSERT query failures with new fields, you can use `input_format_skip_unknown_fields=1`, though this discards data from unknown fields.
-
+The second approach - `json_data_flattened` - flattens the JSON data, and creates a table of columns representing each terminal path within the JSON dataset. For example, the location of requests coming into the GCP Cloud Run instance can be found in the `_source.protoPayload.request.service.metadata.labels.cloud.googleapis.com/location` column. Flattening the JSON data like this significantly improves query speed, up to 5x-10x faster than approach one and two. However, it doesn't scale well due to linear growth in the number of disk files as new JSON fields are identified. To prevent INSERT query failures with new fields, you can use `input_format_skip_unknown_fields=1`, though this discards data from new, unknown fields.
+ 
 ### Approach Three: Key-Value Arrays
 
-This method flattens logs into key-value pairs grouped by value types (String, Number, Boolean, etc.), stored in paired arrays for efficient query execution and compression. It keeps common metadata in dedicated columns for quick access, maintaining raw logs in a _source column for full log reconstruction when needed. This dual storage approach leverages Clickhouse's array functions for fast field value access, suggesting the use of materialized columns for commonly accessed fields to optimize queries.
+The third approach - `json_data_key_value_array` - flattens logs into key-value pairs grouped by value types (String, Number, Boolean, etc.), stored in paired arrays. It keeps common metadata in dedicated columns for quick access, maintaining raw logs in a `_source` column for full log reconstruction when needed. This dual storage approach leverages Clickhouse's array functions for fast field value access.
 
 ## Data
 
@@ -22,44 +22,27 @@ The data analysis revealed varying performance across different storage approach
 
 ![Query Performance](data/query_performance.png)
 
+- **Query Performance**: Initial tests showed that `json_data_flattened` performed fastest but - as mentioned above - this approach has many scalability and reliability issues. The `json_data` approach is surprising fast, performing ~3x faster than `json_data_key_value_array`. 
 
-- **Query Performance**: Initial tests showed that `json_data_flattened` performed fastest but had scalability issues. `json_data_key_value_array` took longer but offered better compression, suggesting potential cost and performance benefits at scale.
-- **Compression and Storage**: The `json_data_key_value_array` approach demonstrated significantly better compression rates, indicating its efficiency for large-scale JSON log data storage and analysis, even when storing raw logs.
+| database | table                      | compressed | uncompressed | compr_rate | rows   | part_count |
+|----------|----------------------------|------------|--------------|------------|--------|------------|
+| default  | json_data_flattened        | 6.68 MiB   | 119.20 MiB   | 17.84      | 249700 | 3          |
+| default  | json_data                  | 6.65 MiB   | 120.59 MiB   | 18.14      | 249700 | 3          |
+| default  | json_data_key_value_array  | 3.04 MiB   | 387.96 MiB   | 127.44     | 249700 | 3          |
+
+
+- **Data Compression: No Table Order Key**: The `json_data_key_value_array` approach is the worst in terms of query speed; however, it demonstrated significantly better compression rates, possibly indicating its efficiency for large-scale JSON log data storage and analysis. The `json_data_key_value_array` table was nearly 3x bigger when uncompressed compared to the other tables but once compressed took up less than half the storage space. Note, the metrics above are without specifying an `ORDER` key during table creation. To learn more about why this impacts compression, read (How to improve Clickhouse table compression)[https://medium.com/datadenys/how-to-improve-clickhouse-table-compression-697ef8f4ccb3]. 
+
+- **Data Compression: With Table Order Key**: To showcase how well the `json_data_key_value_array` approach can compress data, the table below shows a comparison between `json_data_key_value_array` and `json_data`. I wrote a python script that duplicated my GCP Cloud Run logs 5000 times and inserted it into each table. As you can see the uncompressed version of `json_data_key_value_array` is ~4x bigger than `json_data`; however, once compressed `json_data_key_value_array` is 1/3 the size of `json_data`. Note, the `json_data_key_value_array` table only used timestamp as an `ORDER` key as the GCP Cloud Run data is quite simple (i.e only one project id, revision name, location, etc). With more complicated data, a more complex `ORDER` key will give you even better compression compared to storing data as a JSON object. 
+
+| database | table                      | compressed | uncompressed | compr_rate | rows    | part_count |
+|----------|----------------------------|------------|--------------|------------|---------|------------|
+│ default  │ json_data                  │ 148.83 MiB │ 2.68 GiB     │      18.41 │ 5675000 │          1 │
+│ default  │ json_data_key_value_array  │ 55.67 MiB  │ 10.45 GiB    │     192.24 │ 5675000 │          1 │
+
 
 ## Improvements
-
-Future enhancements include testing with larger datasets to validate the `json_data_key_value_array` approach's scalability and performance benefits. Additionally, exploring the performance impact of materialized columns and skip indexes, and adjusting `ORDER BY` statements in table creation could further optimize query execution and data management.
-
-
-# Setup 
-
-### 1: Download the binary
-ClickHouse runs natively on Linux, FreeBSD and macOS, and runs on Windows via the WSL. The simplest way to download ClickHouse locally is to run the following curl command. It determines if your operating system is supported, then downloads an appropriate ClickHouse binary:
-
-```bash
-curl https://clickhouse.com/ | sh
-```
-
-### 2: Start the server
-Run the following command to start the ClickHouse server:
-
-```bash
-./clickhouse server
-```
-
-### 3: Start the client
-Use the ```clickhouse-client``` to connect to your ClickHouse service. Open a new Terminal, change directories to where your ```clickhouse``` binary is saved, and run the following command:
-
-```bash
-./clickhouse client
-```
-
-You should see a smiling face as it connects to your service running on localhost:
-
-```bash
-my-host :)
-```
-
-### 4: Create a table and Insert Data
-
-See directory ```clickhouse```
+- Test With More Complicated/Diverse Data: My data was very primitive as it wasn't from a popular production app. For example, the metadata fiels in the `json_data_key_value_array` table only really had one or two values; meaning implementing skip indexs or using them as `ORDER` keys wouldn't really make a difference. However, these strategies promise huge improvements on complicated, diverse data. 
+- Materialized Columns: Implementing a materialized column, for any commonly used JSON field can significantly speed up filtering and sorting operations.
+- Skip Index Implementation: The `json_data_key_value_array` approach enable you to implement a skip index that radically improves query performance. 
+- `ORDER` Key Adjustment: Fine-tune the ORDER BY clause in the table creation statement to improve data compression and query efficiency.
