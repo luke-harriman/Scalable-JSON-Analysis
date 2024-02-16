@@ -44,7 +44,7 @@ Note, the `json_data_key_value_array` table only used `timestamp` as an `ORDER` 
 
 
 # Improvements
-- Test With More Complicated/Diverse Data: My data was very primitive as it wasn't from a popular production app. For example, the metadata fiels in the `json_data_key_value_array` table only really had one or two values; meaning implementing skip indices or more `ORDER` keys wouldn't really make a difference. However, these strategies promise huge improvements on more complicated, diverse data. 
-- Materialized Columns: Implementing a materialized column, for any commonly used JSON field can significantly speed up filtering and sorting operations.
-- Skip Index Implementation: The `json_data_key_value_array` approach enable you to implement a skip index that radically improves query performance. 
-- `ORDER` Key Adjustment: Fine-tune the ORDER BY clause in the table creation statement to improve data compression and query efficiency.
+- **Test With More Complicated/Diverse Data**: My data was very primitive as it wasn't from a popular production app. For example, the metadata fiels in the `json_data_key_value_array` table only really had one or two values; meaning implementing skip indices or more `ORDER` keys wouldn't really make a difference. However, these strategies promise huge improvements on more complicated, diverse data. 
+- **Materialized Columns**: Implementing a materialized column, for any commonly used JSON field can significantly speed up filtering and sorting operations.
+- **Skip Index Implementation**: The `json_data_key_value_array` approach enable you to implement a skip index that radically improves query performance. 
+- `ORDER` **Key Adjustment**: Fine-tune the ORDER BY clause in the table creation statement to improve data compression and query efficiency.
