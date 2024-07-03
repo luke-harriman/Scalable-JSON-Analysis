@@ -35,8 +35,6 @@ The data analysis revealed varying performance across different storage approach
 
 - **Data Compression: With Table Order Key**: To demonstrate the impact of an `ORDER` key on data compression, the table below shows a comparison between `json_data_key_value_array` and `json_data`. I wrote a python script that duplicated my GCP Cloud Run logs 5000 times and inserted it into each table. As you can see the uncompressed version of `json_data_key_value_array` is ~4x bigger than `json_data`; however, once compressed `json_data_key_value_array` is 1/3 the size of `json_data`. 
 
-Note, the `json_data_key_value_array` table only used `timestamp` as an `ORDER` key due to the cimplicity of the GCP Cloud Run data. With more complicated data, a more complex `ORDER` key will give you even better compression compared to storing data as a JSON object. 
-
 | database | table                      | compressed | uncompressed | compr_rate | rows   | part_count |
 |----------|----------------------------|------------|--------------|------------|--------|------------|
 | default  | json_data                  | 148.83 MiB   | 2.68 GiB   | 18.14      | 5675000 | 1          |
